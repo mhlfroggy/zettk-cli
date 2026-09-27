@@ -1,43 +1,67 @@
-/*
-Copyright © 2026 Matthew Labrecque <mlabrecque2002@gmail.com> 
-*/
 package cmd
 
 import (
+	"errors"
+	"fmt"
 	"os"
-	"github.com/spf13/cobra"
+
+	"github.com/urfave/cli/v2"
 )
 
-// rootCmd represents the base command when called without any subcommands
-var rootCmd = &cobra.Command{
-	Use:   "zettk-cli",
-	Short: "A KISS CLI interface for a Zettelkasten note taking system",
-	Long: `Zettk-CLI is a CLI for a Zettelkasten note taking system
-utilizing the markdown format. Zettk is designed to be easily 
+// NewApp constructs the command line application.
+func NewApp() *cli.App {
+	return &cli.App{
+		Name:  "zettk-cli",
+		Usage: "A KISS CLI interface for a Zettelkasten note taking system",
+		Description: `Zettk-CLI is a CLI for a Zettelkasten note taking system
+utilizing the markdown format. Zettk is designed to be easily
 customizable and modifiable, serving as a core for your
 note taking system.`,
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
-}
-
-// Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the rootCmd.
-func Execute() {
-	err := rootCmd.Execute()
-	if err != nil {
-		os.Exit(1)
+		Commands: []*cli.Command{
+			{Name: "init", Usage: "Initialize a Zettelkasten", Description: "Initialize a new Zettelkasten with subdirectories. Existing directories require confirmation before replacement.", Before: exactArgs(0), Action: initAction},
+			{Name: "new", Usage: "Create a new note and update the Zettelkasten", ArgsUsage: "<title>", Description: "Create a markdown note, link it from today's daily note, and open it in $EDITOR.", Flags: []cli.Flag{&cli.StringFlag{Name: "template", Aliases: []string{"t"}, Value: "note", Usage: "Specify custom note template"}}, Before: exactArgs(1), Action: newAction},
+			{Name: "open", Usage: "Open a file in the default editor", ArgsUsage: "<search>", Description: "Search for a matching note and open it in your editor.", Before: exactArgs(1), Action: openAction},
+			{Name: "find", Usage: "Search through the Zettelkasten", ArgsUsage: "<search>", Description: "Find a note and display its ID, creation time, location, and modification time.", Flags: []cli.Flag{
+				&cli.BoolFlag{Name: "input", Usage: "Search only the input folder"},
+				&cli.BoolFlag{Name: "archive", Usage: "Search only the archive folder"},
+				&cli.BoolFlag{Name: "inbox", Usage: "Search only the inbox folder"},
+			}, Before: func(c *cli.Context) error {
+				if err := exactArgs(1)(c); err != nil {
+					return err
+				}
+				selected := 0
+				for _, name := range []string{"input", "archive", "inbox"} {
+					if c.Bool(name) {
+						selected++
+					}
+				}
+				if selected > 1 {
+					return errors.New("--input, --archive, and --inbox are mutually exclusive")
+				}
+				return nil
+			}, Action: findAction},
+			{Name: "sp", Usage: "Open the scratchpad note for quick notes", Before: exactArgs(0), Action: scratchpadAction},
+			{Name: "daily", Usage: "Open the daily note", Before: exactArgs(0), Action: dailyAction},
+		},
 	}
 }
 
-func init() {
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
+func exactArgs(want int) cli.BeforeFunc {
+	return func(c *cli.Context) error {
+		if c.NArg() != want {
+			return fmt.Errorf("expected %d argument(s), got %d", want, c.NArg())
+		}
+		return nil
+	}
+}
 
-	// rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.zettk-cli.yaml)")
+// Execute runs the CLI using the process arguments.
+func Execute() error { return NewApp().Run(os.Args) }
 
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
-	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+// Main prints application errors and returns a nonzero exit code.
+func Main() {
+	if err := Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
 }
